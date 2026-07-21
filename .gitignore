@@ -1,0 +1,52 @@
+# ---------------------------------------------------------------------------
+# Projets/build Vivado temporaires (crees par tcl/package_ip_*.tcl)
+# ---------------------------------------------------------------------------
+_pkg_build_*/
+*.xpr
+*.cache/
+*.hw/
+*.ip_user_files/
+*.sim/
+*.runs/
+*.gen/
+*.srcs/
+*.hbs/
+*.lpr
+
+# IP packagees generees (regenerable via les scripts tcl/ -- decommenter
+# les lignes ci-dessous si vous ne voulez PAS les versionner ; voir la note
+# du README sur cette convention) :
+ip_repo_*/
+
+# Logs / journaux Vivado
+vivado.jou
+vivado.log
+vivado_*.jou
+vivado_*.log
+vivado_*.str
+vivado_pid*.str
+.Xil/
+webtalk*.log
+webtalk*.jou
+usage_statistics_webtalk.html
+fsm_encoding.os
+
+# ---------------------------------------------------------------------------
+# GHDL / simulation
+# ---------------------------------------------------------------------------
+*.o
+*.cf
+work-obj*.cf
+e~*
+*.ghw
+*.vcd
+
+# ---------------------------------------------------------------------------
+# Divers OS / editeurs
+# ---------------------------------------------------------------------------
+.DS_Store
+Thumbs.db
+*.swp
+*~
+.vscode/
+.idea/
