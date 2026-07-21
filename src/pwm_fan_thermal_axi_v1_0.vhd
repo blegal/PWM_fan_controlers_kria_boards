@@ -23,6 +23,13 @@
 -- de fan_thermal_ctrl.vhd produit un resultat incoherent (soustraction
 -- unsigned negative). Valeurs par defaut fournies coherentes entre elles.
 --
+-- ETAT PAR DEFAUT AU RESET (avant toute ecriture logicielle) : CTRL =
+-- ENABLE=1 / AUTO_MODE=0 (mode manuel), avec PERIOD_REG=100000 et
+-- DUTY_REG=50000, soit un demarrage a 50% de rapport cyclique -- suffisant
+-- au repos, sans devoir attendre une premiere ecriture logicielle du
+-- registre CTRL. Le logiciel peut ensuite reduire/augmenter DUTY_REG ou
+-- passer en AUTO_MODE=1 pour l'asservissement thermique.
+--
 -- NOTE IMPORTANTE : cette version corrige egalement un bug present dans la
 -- version precedente du module PWM (pwm_fan_axi_v1_0) : le chemin de
 -- lecture AXI n'etait jamais reellement implemente (s_axi_rdata n'etait
@@ -79,7 +86,10 @@ end entity pwm_fan_thermal_axi_v1_0;
 architecture rtl of pwm_fan_thermal_axi_v1_0 is
 
     -- Registres AXI
-    signal ctrl_reg     : std_logic_vector(31 downto 0) := (others => '0');
+    -- ctrl_reg par defaut : ENABLE=1, AUTO_MODE=0 (mode manuel) -> le
+    -- module pilote fan_en_b des la sortie de reset avec duty_reg (50%
+    -- par defaut), sans attendre d'ecriture logicielle (cf. note en tete).
+    signal ctrl_reg     : std_logic_vector(31 downto 0) := x"00000001";
     signal period_reg   : unsigned(31 downto 0) := to_unsigned(100000, 32);
     signal duty_reg     : unsigned(31 downto 0) := to_unsigned(50000, 32);
     signal t_thresh_reg : std_logic_vector(31 downto 0) :=
@@ -169,7 +179,7 @@ begin
     begin
         if rising_edge(s_axi_aclk) then
             if s_axi_aresetn = '0' then
-                ctrl_reg     <= (others => '0');
+                ctrl_reg     <= x"00000001";  -- ENABLE=1, AUTO_MODE=0
                 period_reg   <= to_unsigned(100000, 32);
                 duty_reg     <= to_unsigned(50000, 32);
                 t_thresh_reg <= x"1E00_0FA0";
@@ -253,12 +263,16 @@ begin
     ---------------------------------------------------------------------
     -- Generation PWM -- SORTIE ACTIVE BASSE (fan_en_b)
     --
-    -- Valeur par defaut au reset : '0' (ventilateur active en continu).
-    -- C'est un choix de securite (fail-safe) : tant que la chaine
-    -- d'acquisition/asservissement n'a pas produit de premiere mesure
-    -- valide, le ventilateur tourne a pleine puissance plutot que d'etre
-    -- coupe (empeche une surchauffe silencieuse si le SYSMON ou la
-    -- commande thermique ne demarre pas correctement).
+    -- Des la sortie de reset, ctrl_reg = ENABLE=1/AUTO_MODE=0 (cf. plus
+    -- haut) : ce process pilote donc immediatement fan_en_b avec
+    -- duty_reg (50% par defaut, cf. duty_reg/period_reg), sans attendre
+    -- d'ecriture logicielle. La ligne fan_en_b <= '0' du bloc de reset
+    -- n'est que la valeur transitoire du cycle de reset lui-meme.
+    --
+    -- Fail-safe conserve pour le cas ou le logiciel desactive
+    -- explicitement le module (ENABLE=0) : le ventilateur est alors force
+    -- ON en continu (pleine puissance) plutot que coupe, pour ne jamais
+    -- risquer une surchauffe silencieuse.
     ---------------------------------------------------------------------
     process (s_axi_aclk)
     begin
