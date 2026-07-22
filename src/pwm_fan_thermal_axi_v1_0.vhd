@@ -123,6 +123,22 @@ architecture rtl of pwm_fan_thermal_axi_v1_0 is
     -- Read data mux
     signal rdata_i : std_logic_vector(31 downto 0) := (others => '0');
 
+    -- Handshake AXI4-Lite (pattern standard : un seul transfert en vol par
+    -- canal, READY/VALID correctement sequences -- cf. note ci-dessous sur
+    -- pourquoi ce n'est plus un simple cablage combinatoire).
+    signal axi_awaddr  : std_logic_vector(5 downto 0) := (others => '0');
+    signal axi_awready : std_logic := '0';
+    signal axi_wready  : std_logic := '0';
+    signal aw_en        : std_logic := '1';
+    signal axi_bvalid  : std_logic := '0';
+
+    signal axi_araddr  : std_logic_vector(5 downto 0) := (others => '0');
+    signal axi_arready : std_logic := '0';
+    signal axi_rvalid  : std_logic := '0';
+
+    signal slv_reg_wren : std_logic;
+    signal slv_reg_rden : std_logic;
+
 begin
 
     t_min_s <= signed(t_thresh_reg(15 downto 0));
@@ -164,17 +180,83 @@ begin
     duty_active <= duty_auto when auto_mode = '1' else duty_reg;
 
     ---------------------------------------------------------------------
-    -- Interface AXI-Lite (toujours prete, cf. note en tete)
+    -- Interface AXI-Lite -- handshake READY/VALID correct (un transfert en
+    -- vol par canal). Pattern standard (celui genere par l'assistant
+    -- Vivado "AXI4 Peripheral").
+    --
+    -- IMPORTANT : la version precedente cablait s_axi_bvalid/s_axi_rvalid
+    -- en permanence a '1' (assignation concurrente, jamais desactivee).
+    -- C'est une violation de protocole AXI4 (contrairement a un READY
+    -- permanent, qui est legal) : un VALID de reponse leve avant meme
+    -- qu'une transaction ait ete emise desynchronise le suivi des
+    -- transactions en cours de l'interconnect AXI du PS sur silicium reel
+    -- (GHDL ne le detecte pas, ce n'est pas une erreur de syntaxe), et
+    -- bloque le bus des le premier acces registre. D'ou le blocage observe
+    -- sur le self-test logiciel malgre une simulation/synthese "propre".
     ---------------------------------------------------------------------
-    s_axi_awready <= '1';
-    s_axi_wready  <= '1';
-    s_axi_arready <= '1';
+    s_axi_awready <= axi_awready;
+    s_axi_wready  <= axi_wready;
+    s_axi_bresp   <= "00";
+    s_axi_bvalid  <= axi_bvalid;
+    s_axi_arready <= axi_arready;
+    s_axi_rresp   <= "00";
+    s_axi_rvalid  <= axi_rvalid;
 
-    s_axi_bresp  <= "00";
-    s_axi_bvalid <= '1';
-    s_axi_rresp  <= "00";
-    s_axi_rvalid <= '1';
+    slv_reg_wren <= axi_wready and s_axi_wvalid and axi_awready and s_axi_awvalid;
+    slv_reg_rden <= axi_arready and s_axi_arvalid and (not axi_rvalid);
 
+    -- AWREADY : accepte une nouvelle adresse d'ecriture quand aucune n'est
+    -- deja en cours de traitement (aw_en), et tant que BVALID n'a pas ete
+    -- acquitte par le maitre (BREADY).
+    process (s_axi_aclk)
+    begin
+        if rising_edge(s_axi_aclk) then
+            if s_axi_aresetn = '0' then
+                axi_awready <= '0';
+                aw_en       <= '1';
+            elsif axi_awready = '0' and s_axi_awvalid = '1' and
+                  s_axi_wvalid = '1' and aw_en = '1' then
+                axi_awready <= '1';
+                aw_en       <= '0';
+            elsif s_axi_bready = '1' and axi_bvalid = '1' then
+                aw_en       <= '1';
+                axi_awready <= '0';
+            else
+                axi_awready <= '0';
+            end if;
+        end if;
+    end process;
+
+    -- Capture de l'adresse d'ecriture au moment de son acceptation.
+    process (s_axi_aclk)
+    begin
+        if rising_edge(s_axi_aclk) then
+            if s_axi_aresetn = '0' then
+                axi_awaddr <= (others => '0');
+            elsif axi_awready = '0' and s_axi_awvalid = '1' and
+                  s_axi_wvalid = '1' and aw_en = '1' then
+                axi_awaddr <= s_axi_awaddr;
+            end if;
+        end if;
+    end process;
+
+    -- WREADY : suit AWREADY (adresse et donnee acceptees ensemble).
+    process (s_axi_aclk)
+    begin
+        if rising_edge(s_axi_aclk) then
+            if s_axi_aresetn = '0' then
+                axi_wready <= '0';
+            elsif axi_wready = '0' and s_axi_wvalid = '1' and
+                  s_axi_awvalid = '1' and aw_en = '1' then
+                axi_wready <= '1';
+            else
+                axi_wready <= '0';
+            end if;
+        end if;
+    end process;
+
+    -- Ecriture effective des registres (un seul cycle, sur slv_reg_wren)
+    -- et gestion du sticky STATUS.
     process (s_axi_aclk)
     begin
         if rising_edge(s_axi_aclk) then
@@ -185,10 +267,11 @@ begin
                 t_thresh_reg <= x"1E00_0FA0";
                 duty_min_reg <= to_unsigned(10000, 32);
                 duty_max_reg <= to_unsigned(90000, 32);
+                temp_valid_sticky <= '0';
             else
 
-                if s_axi_awvalid = '1' and s_axi_wvalid = '1' then
-                    case s_axi_awaddr(5 downto 2) is
+                if slv_reg_wren = '1' then
+                    case axi_awaddr(5 downto 2) is
                         when "0000" =>
                             ctrl_reg <= s_axi_wdata;
 
@@ -216,10 +299,12 @@ begin
                 end if;
 
                 -- Sticky "nouvelle temperature disponible", remis a zero
-                -- lors de la lecture du registre STATUS (0x20).
+                -- au cycle ou une lecture du registre STATUS (0x20) est
+                -- effectivement acceptee (slv_reg_rden), plutot que sur
+                -- l'etat brut (potentiellement multi-cycles) de ARVALID.
                 if temp_valid = '1' then
                     temp_valid_sticky <= '1';
-                elsif s_axi_arvalid = '1' and s_axi_araddr(5 downto 2) = "1000" then
+                elsif slv_reg_rden = '1' and s_axi_araddr(5 downto 2) = "1000" then
                     temp_valid_sticky <= '0';
                 end if;
 
@@ -227,14 +312,62 @@ begin
         end if;
     end process;
 
+    -- BVALID/BRESP : une reponse par ecriture acceptee, maintenue jusqu'a
+    -- l'acquittement BREADY du maitre.
+    process (s_axi_aclk)
+    begin
+        if rising_edge(s_axi_aclk) then
+            if s_axi_aresetn = '0' then
+                axi_bvalid <= '0';
+            elsif axi_awready = '1' and s_axi_awvalid = '1' and
+                  axi_wready = '1' and s_axi_wvalid = '1' and axi_bvalid = '0' then
+                axi_bvalid <= '1';
+            elsif s_axi_bready = '1' and axi_bvalid = '1' then
+                axi_bvalid <= '0';
+            end if;
+        end if;
+    end process;
+
+    -- ARREADY : accepte une nouvelle adresse de lecture quand aucune
+    -- reponse RVALID n'est en cours.
+    process (s_axi_aclk)
+    begin
+        if rising_edge(s_axi_aclk) then
+            if s_axi_aresetn = '0' then
+                axi_arready <= '0';
+                axi_araddr  <= (others => '0');
+            elsif axi_arready = '0' and s_axi_arvalid = '1' and axi_rvalid = '0' then
+                axi_arready <= '1';
+                axi_araddr  <= s_axi_araddr;
+            else
+                axi_arready <= '0';
+            end if;
+        end if;
+    end process;
+
+    -- RVALID/RRESP : une reponse par lecture acceptee, maintenue jusqu'a
+    -- l'acquittement RREADY du maitre.
+    process (s_axi_aclk)
+    begin
+        if rising_edge(s_axi_aclk) then
+            if s_axi_aresetn = '0' then
+                axi_rvalid <= '0';
+            elsif axi_arready = '1' and s_axi_arvalid = '1' and axi_rvalid = '0' then
+                axi_rvalid <= '1';
+            elsif axi_rvalid = '1' and s_axi_rready = '1' then
+                axi_rvalid <= '0';
+            end if;
+        end if;
+    end process;
+
     ---------------------------------------------------------------------
-    -- Interface AXI-Lite (lecture)
+    -- Interface AXI-Lite (donnee de lecture, mux sur l'adresse capturee)
     ---------------------------------------------------------------------
-    process (s_axi_araddr, ctrl_reg, period_reg, duty_reg, duty_auto,
+    process (axi_araddr, ctrl_reg, period_reg, duty_reg, duty_auto,
              temp_centideg, t_thresh_reg, duty_min_reg, duty_max_reg,
              temp_valid_sticky)
     begin
-        case s_axi_araddr(5 downto 2) is
+        case axi_araddr(5 downto 2) is
             when "0000" =>
                 rdata_i <= ctrl_reg;
             when "0001" =>

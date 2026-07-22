@@ -37,13 +37,17 @@ component bases sur CMake). Etapes :
    - `drivers/pwm_fan_thermal/pwm_fan_thermal.c` et `.h`
    - `examples/test_pwm_fan_thermal.c` (remplace/complete le `main()` genere
      par le template)
-5. Ouvrir `xparameters.h` genere (dans le platform component,
+5. Le nom de macro `BASEADDR` par defaut suppose dans `test_pwm_fan_thermal.c`
+   (`XPAR_PWM_FAN_THERMAL_AXI_V1_0_0_S_AXI_BASEADDR`) decoule directement de
+   `tcl/package_ip_axi.tcl` (VLNV name `pwm_fan_thermal_axi_v1_0`, bus
+   interface associee sous le nom `S_AXI`) combine au nommage automatique
+   Vivado de la premiere instance deposee dans le Block Design (suffixe
+   `_0`) : c'est le nom attendu tel quel dans la config par defaut. A
+   n'adapter que si vous renommez l'instance dans le Block Design, ou en
+   instanciez plusieurs (suffixe `_1`, `_2`, ... pour les suivantes) --
+   dans ce cas, verifier dans `xparameters.h` genere (platform component,
    `psu_cortexa53_0/standalone_domain/bsp/psu_cortexa53_0/include/` ou
-   equivalent) et chercher l'entree `..._S_AXI_BASEADDR` correspondant a
-   l'instance `pwm_fan_thermal_axi_v1_0` (le nom exact depend du nom donne a
-   l'instance dans le Block Design, ex.
-   `XPAR_PWM_FAN_THERMAL_AXI_V1_0_0_S_AXI_BASEADDR`). Adapter en tete de
-   `test_pwm_fan_thermal.c` si le nom differe de celui suppose par defaut.
+   equivalent).
 6. Build + **Run As > Launch Hardware** (ou debug JTAG) sur la cible.
 
 > Comme l'IP a ete packagee via les scripts `tcl/package_ip_*.tcl` sans

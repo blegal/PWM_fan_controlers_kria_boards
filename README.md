@@ -53,14 +53,27 @@ peut etre supprime apres coup ; seul le repertoire `ip_repo_*` genere est a
 conserver et versionner (ou non, selon votre convention -- voir
 `.gitignore`).
 
-### IP AXI4-Lite
+### Les 2 IP en une seule commande
+
+```bash
+cd kv260_pwm_fan_thermal
+vivado -mode batch -source tcl/package_ip_all.tcl \
+    -tclargs xck26-sfvc784-2LV-c ./ip_repo_axi ./ip_repo_standalone
+```
+
+`package_ip_all.tcl` reutilise tel quel `package_ip_axi.tcl` et
+`package_ip_standalone.tcl` ci-dessous (pas de logique dupliquee) ; une
+erreur sur l'une des 2 IP n'empeche pas la tentative de packaging de
+l'autre.
+
+### IP AXI4-Lite seule
 
 ```bash
 cd kv260_pwm_fan_thermal
 vivado -mode batch -source tcl/package_ip_axi.tcl -tclargs xck26-sfvc784-2LV-c ./ip_repo_axi
 ```
 
-### IP standalone (horloge seule)
+### IP standalone seule (horloge seule)
 
 ```bash
 cd kv260_pwm_fan_thermal

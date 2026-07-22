@@ -76,5 +76,5 @@ close_project
 
 puts "IP standalone packagee dans : [file normalize $repo_dir]"
 puts "Pensez a l'ajouter au repository IP de votre projet :"
-puts {  set_property ip_repo_paths {<chemin_absolu>/ip_repo_standalone} [current_project]}
+puts "  set_property ip_repo_paths {[file normalize $repo_dir]} \[current_project\]"
 puts {  update_ip_catalog}

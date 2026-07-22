@@ -23,17 +23,26 @@
 #include "pwm_fan_thermal.h"
 
 /*
- * Adresse de base de l'IP, generee dans xparameters.h a partir du nom de
- * l'instance donnee dans le Block Design Vivado (Regenerate Output Products
- * + Export Hardware + Vitis "Update Hardware" doivent avoir ete faits au
- * prealable). Adaptez le nom de macro ci-dessous a celui reellement genere
- * chez vous (visible dans xparameters.h, rechercher "PWM_FAN_THERMAL").
+ * Adresse de base de l'IP, generee dans xparameters.h (Regenerate Output
+ * Products + Export Hardware + Vitis "Update Hardware" doivent avoir ete
+ * faits au prealable).
+ *
+ * Le nom de macro par defaut ci-dessous decoule directement de
+ * tcl/package_ip_axi.tcl : VLNV name = "pwm_fan_thermal_axi_v1_0", bus
+ * interface associee explicitement sous le nom "S_AXI". Avec le nommage
+ * automatique Vivado pour la PREMIERE instance deposee dans le Block
+ * Design (suffixe "_0"), le nom genere est deterministe :
+ *   XPAR_PWM_FAN_THERMAL_AXI_V1_0_0_S_AXI_BASEADDR
+ *
+ * A adapter uniquement si vous renommez l'instance dans le Block Design,
+ * ou si vous en instanciez plusieurs (suffixe _1, _2, ... pour les
+ * suivantes).
  */
 #ifndef PWM_FAN_THERMAL_BASEADDR
   #ifdef XPAR_PWM_FAN_THERMAL_AXI_V1_0_0_S_AXI_BASEADDR
     #define PWM_FAN_THERMAL_BASEADDR XPAR_PWM_FAN_THERMAL_AXI_V1_0_0_S_AXI_BASEADDR
   #else
-    #warning "XPAR_PWM_FAN_THERMAL_AXI_V1_0_0_S_AXI_BASEADDR introuvable : adaptez le nom de macro (cf. xparameters.h) ou definissez PWM_FAN_THERMAL_BASEADDR manuellement."
+    #warning "XPAR_PWM_FAN_THERMAL_AXI_V1_0_0_S_AXI_BASEADDR introuvable : instance renommee/dupliquee dans le Block Design ? Adaptez le nom de macro (cf. xparameters.h) ou definissez PWM_FAN_THERMAL_BASEADDR manuellement."
     #define PWM_FAN_THERMAL_BASEADDR 0x80000000U
   #endif
 #endif
