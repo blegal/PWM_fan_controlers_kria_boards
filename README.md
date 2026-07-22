@@ -4,7 +4,7 @@ Controleur PWM du ventilateur de la Kria KV260 (Zynq UltraScale+), avec
 acquisition de la temperature on-chip via le bloc SYSMON du PL et
 asservissement (interpolation lineaire duty <-> temperature).
 
-Deux variantes fournies :
+Trois variantes fournies :
 
 - **`pwm_fan_thermal_axi_v1_0`** : IP AXI4-Lite complete (registres CTRL,
   PERIOD, DUTY manuel/auto, TEMP_RAW, seuils, bornes de duty), pilotable
@@ -13,15 +13,25 @@ Deux variantes fournies :
   le port `clk` doit etre connecte. Tous les parametres (periode, seuils,
   bornes de duty) sont des generiques VHDL exposes automatiquement comme
   parametres de personnalisation dans le Block Design Vivado.
+- **`pwm_fan_open_loop`** : IP totalement autonome et en boucle ouverte --
+  ni SYSMON (aucune acquisition de temperature, aucune dependance a
+  `unisim`), ni AXI. Seul `clk` doit etre connecte. Frequence de
+  commutation PWM (`PWM_FREQ_HZ`, relative a `CLK_FREQ_HZ`) et rapport
+  cyclique (`DUTY_PERCENT`, 0-100) sont des generiques fixes a la synthese.
+  Vehicule de test minimal pour valider le cablage physique (`fan_en_b`) et
+  le comportement du ventilateur independamment de toute la chaine SYSMON/
+  AXI.
 
-Les deux variantes partagent les memes blocs d'acquisition et de commande :
+Les variantes `axi_v1_0` et `standalone` partagent les memes blocs
+d'acquisition et de commande ; `open_loop` est totalement independant :
 
 ```
 src/
-  sysmon_temp_acq.vhd          -- instancie SYSMONE4, lit la temperature via DRP
-  fan_thermal_ctrl.vhd         -- loi de commande duty <-> temperature
-  pwm_fan_thermal_axi_v1_0.vhd -- top-level AXI4-Lite
-  pwm_fan_thermal_standalone.vhd -- top-level autonome (horloge seule)
+  sysmon_temp_acq.vhd            -- instancie SYSMONE4, lit la temperature via DRP
+  fan_thermal_ctrl.vhd           -- loi de commande duty <-> temperature
+  pwm_fan_thermal_axi_v1_0.vhd   -- top-level AXI4-Lite
+  pwm_fan_thermal_standalone.vhd -- top-level autonome asservi (horloge seule)
+  pwm_fan_open_loop.vhd          -- top-level autonome boucle ouverte (horloge seule)
 ```
 
 ## Points a verifier avant synthese reelle
@@ -53,18 +63,18 @@ peut etre supprime apres coup ; seul le repertoire `ip_repo_*` genere est a
 conserver et versionner (ou non, selon votre convention -- voir
 `.gitignore`).
 
-### Les 2 IP en une seule commande
+### Les 3 IP en une seule commande
 
 ```bash
 cd kv260_pwm_fan_thermal
 vivado -mode batch -source tcl/package_ip_all.tcl \
-    -tclargs xck26-sfvc784-2LV-c ./ip_repo_axi ./ip_repo_standalone
+    -tclargs xck26-sfvc784-2LV-c ./ip_repo_axi ./ip_repo_standalone ./ip_repo_open_loop
 ```
 
-`package_ip_all.tcl` reutilise tel quel `package_ip_axi.tcl` et
-`package_ip_standalone.tcl` ci-dessous (pas de logique dupliquee) ; une
-erreur sur l'une des 2 IP n'empeche pas la tentative de packaging de
-l'autre.
+`package_ip_all.tcl` reutilise tel quel `package_ip_axi.tcl`,
+`package_ip_standalone.tcl` et `package_ip_open_loop.tcl` ci-dessous (pas de
+logique dupliquee) ; une erreur sur l'une des IP n'empeche pas la tentative
+de packaging des autres.
 
 ### IP AXI4-Lite seule
 
@@ -73,11 +83,18 @@ cd kv260_pwm_fan_thermal
 vivado -mode batch -source tcl/package_ip_axi.tcl -tclargs xck26-sfvc784-2LV-c ./ip_repo_axi
 ```
 
-### IP standalone seule (horloge seule)
+### IP standalone thermique seule (horloge seule)
 
 ```bash
 cd kv260_pwm_fan_thermal
 vivado -mode batch -source tcl/package_ip_standalone.tcl -tclargs xck26-sfvc784-2LV-c ./ip_repo_standalone
+```
+
+### IP open-loop seule (horloge seule, rapport cyclique fixe, sans temperature)
+
+```bash
+cd kv260_pwm_fan_thermal
+vivado -mode batch -source tcl/package_ip_open_loop.tcl -tclargs xck26-sfvc784-2LV-c ./ip_repo_open_loop
 ```
 
 ### Ajouter le repository IP genere a un projet existant
