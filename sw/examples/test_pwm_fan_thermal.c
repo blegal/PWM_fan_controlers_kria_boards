@@ -13,6 +13,9 @@
  *
  * A ajouter au projet application Vitis avec pwm_fan_thermal.c/.h (dossier
  * sw/drivers/pwm_fan_thermal/). Voir sw/README.md pour l'integration.
+ *
+ * N'est PAS un point d'entree (pas de main()) : appeler test_pwm_fan_thermal()
+ * depuis le main() de l'application (qui peut enchainer plusieurs tests).
  *---------------------------------------------------------------------------*/
 
 #include "xparameters.h"
@@ -38,13 +41,10 @@
  * ou si vous en instanciez plusieurs (suffixe _1, _2, ... pour les
  * suivantes).
  */
-#ifndef PWM_FAN_THERMAL_BASEADDR
-  #ifdef XPAR_PWM_FAN_THERMAL_AXI_V1_0_0_S_AXI_BASEADDR
-    #define PWM_FAN_THERMAL_BASEADDR XPAR_PWM_FAN_THERMAL_AXI_V1_0_0_S_AXI_BASEADDR
-  #else
-    #warning "XPAR_PWM_FAN_THERMAL_AXI_V1_0_0_S_AXI_BASEADDR introuvable : instance renommee/dupliquee dans le Block Design ? Adaptez le nom de macro (cf. xparameters.h) ou definissez PWM_FAN_THERMAL_BASEADDR manuellement."
-    #define PWM_FAN_THERMAL_BASEADDR 0x80000000U
-  #endif
+#ifdef XPAR_PWM_FAN_THERMAL_AXI_V1_0_0_S_AXI_BASEADDR
+	#define PWM_FAN_THERMAL_BASEADDR XPAR_PWM_FAN_THERMAL_AXI_V1_0_0_S_AXI_BASEADDR
+#else
+	#error "XPAR_PWM_FAN_THERMAL_AXI_V1_0_0_S_AXI_BASEADDR introuvable : instance renommee/dupliquee dans le Block Design ? Adaptez le nom de macro (cf. xparameters.h) ou definissez PWM_FAN_THERMAL_BASEADDR manuellement."
 #endif
 
 /* Periode PWM utilisee pour la demo (coups d'horloge s_axi_aclk). */
@@ -67,7 +67,7 @@ static void PrintStatusLine(u32 PercentRequested)
                TempValid);
 }
 
-int main(void)
+int test_pwm_fan_thermal(void)
 {
     int Status;
     u32 Percent;

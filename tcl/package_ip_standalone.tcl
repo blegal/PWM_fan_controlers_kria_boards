@@ -33,6 +33,8 @@ set script_dir [file normalize [file dirname [info script]]]
 set src_dir     [file normalize "$script_dir/../src"]
 set build_dir   "./_pkg_build_standalone"
 
+source [file join $script_dir "build_counter.tcl"]
+
 if {[file exists $build_dir]} {
     file delete -force $build_dir
 }
@@ -48,6 +50,17 @@ add_files -norecurse [list \
 set_property top pwm_fan_thermal_standalone [current_fileset]
 update_compile_order -fileset sources_1
 
+# Nettoyage d'un repo_dir precedent : ipx::package_project reutilise/fusionne
+# un component.xml existant a cet emplacement plutot que d'en repartir a
+# zero ; sans ce nettoyage, relancer ce script (apres une modification du
+# VHDL par exemple) peut faire s'accumuler des associations dupliquees
+# (cf. [BD 41-1732] "associated with multiple clock-pins" observe sur
+# package_ip_axi.tcl / package_ip_build_info.tcl, qui appellent en plus
+# ipx::associate_bus_interfaces explicitement).
+if {[file exists $repo_dir]} {
+    file delete -force $repo_dir
+}
+
 file mkdir $repo_dir
 
 ipx::package_project -root_dir $repo_dir -vendor user.org -library user \
@@ -55,11 +68,14 @@ ipx::package_project -root_dir $repo_dir -vendor user.org -library user \
 
 set core [ipx::current_core]
 
+set build_number [next_build_number "standalone"]
+set ip_version "1.$build_number"
+
 set_property name             pwm_fan_thermal_standalone                     $core
 set_property display_name     "PWM Fan Thermal Standalone"                   $core
 set_property description      "Controleur PWM ventilateur KV260 autonome, asservi sur la temperature SYSMON on-chip. Aucune interface AXI : seule l'horloge doit etre connectee." $core
 set_property vendor_display_name "user.org"                                  $core
-set_property version          "1.0"                                          $core
+set_property version          $ip_version                                   $core
 
 # Association du port d'horloge (facultatif mais recommande : permet la
 # propagation automatique de la contrainte de frequence et l'auto-connexion
@@ -74,7 +90,16 @@ ipx::save_core              $core
 
 close_project
 
+puts ""
+puts "=================================================================="
+puts " Build #$build_number -- IP pwm_fan_thermal_standalone packagee (version Vivado du composant = $ip_version)"
+puts "=================================================================="
+puts ""
 puts "IP standalone packagee dans : [file normalize $repo_dir]"
 puts "Pensez a l'ajouter au repository IP de votre projet :"
 puts "  set_property ip_repo_paths {[file normalize $repo_dir]} \[current_project\]"
 puts {  update_ip_catalog}
+puts ""
+puts "Pour verifier apres synthese/bitstream que la carte tourne bien avec CE"
+puts "packaging (Build #$build_number), comparez avec la version affichee dans"
+puts "Vivado (IP catalog / Customize IP / Report IP Status) : $ip_version."

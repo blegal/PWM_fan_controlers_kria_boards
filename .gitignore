@@ -18,6 +18,10 @@ _pkg_build_*/
 # du README sur cette convention) :
 ip_repo_*/
 
+# Compteurs de build persistants (tcl/build_counter.tcl), locaux a chaque
+# poste de travail -- pas une source versionnee, cf. tcl/build_counter.tcl.
+tcl/.build_counters/
+
 # Logs / journaux Vivado
 vivado.jou
 vivado.log

@@ -22,16 +22,26 @@
 # eviter tout mismatch de partie lors de l'ajout ulterieur de l'IP au design.
 #
 # NOTE INFERENCE AXI : ce script tente une inference automatique de
-# l'interface AXI4-Lite via ipx::infer_bus_interface, en se basant sur le
-# nommage standard des ports (s_axi_*). La syntaxe exacte de cette commande
-# a pu varier legerement entre versions de Vivado. Si l'inference echoue ou
-# si l'onglet "Interfaces" de l'IP ne montre pas correctement l'interface
-# S_AXI apres generation, ouvrez l'IP dans l'assistant Vivado (Tools ->
-# Create and Package New IP -> Package a specification -> pointer vers le
-# repo_dir genere) et finalisez l'onglet Interfaces manuellement une fois
-# (Vivado detecte alors tres bien s_axi_* par nommage), puis re-sauvegardez ;
-# le Tcl Console de Vivado affichera alors les commandes exactes executees,
-# a reporter ici pour rendre le script 100% reproductible sur votre version.
+# l'interface AXI4-Lite via un seul appel a ipx::infer_bus_interface, en se
+# basant sur le nommage standard des ports (s_axi_*) -- CET APPEL UNIQUE
+# DETECTE ET ASSOCIE DEJA s_axi_aclk/s_axi_aresetn comme horloge/reset du bus
+# (Vivado le fait automatiquement par correspondance de prefixe de nom). Ne
+# PAS ajouter d'appels supplementaires ipx::infer_bus_interface sur
+# s_axi_aclk/s_axi_aresetn ni ipx::associate_bus_interfaces : une version
+# anterieure de ce script les ajoutait "par securite", ce qui creait en
+# realite une DEUXIEME association du meme pin d'horloge sur S_AXI et
+# provoquait [BD 41-1732] "found to be associated with multiple clock-pins"
+# a la validation du Block Design (cf. commentaire au point d'appel plus bas).
+#
+# La syntaxe exacte de ipx::infer_bus_interface a pu varier legerement entre
+# versions de Vivado. Si l'inference echoue ou si l'onglet "Interfaces" de
+# l'IP ne montre pas correctement l'interface S_AXI apres generation, ouvrez
+# l'IP dans l'assistant Vivado (Tools -> Create and Package New IP -> Package
+# a specification -> pointer vers le repo_dir genere) et finalisez l'onglet
+# Interfaces manuellement une fois (Vivado detecte alors tres bien s_axi_*
+# par nommage), puis re-sauvegardez ; le Tcl Console de Vivado affichera
+# alors les commandes exactes executees, a reporter ici pour rendre le
+# script 100% reproductible sur votre version.
 ###############################################################################
 
 set part     [lindex $argv 0]
@@ -47,6 +57,8 @@ if {$repo_dir eq ""} {
 set script_dir [file normalize [file dirname [info script]]]
 set src_dir     [file normalize "$script_dir/../src"]
 set build_dir   "./_pkg_build_axi"
+
+source [file join $script_dir "build_counter.tcl"]
 
 # Nettoyage d'un build precedent pour repartir propre
 if {[file exists $build_dir]} {
@@ -64,6 +76,20 @@ add_files -norecurse [list \
 set_property top pwm_fan_thermal_axi_v1_0 [current_fileset]
 update_compile_order -fileset sources_1
 
+# Nettoyage d'un repo_dir precedent : indispensable, pas juste cosmetique.
+# ipx::package_project reutilise/fusionne un component.xml existant a cet
+# emplacement plutot que d'en repartir a zero ; sans ce nettoyage, relancer
+# ce script (apres une modification du VHDL par exemple) fait s'accumuler
+# les associations d'horloge ajoutees par ipx::associate_bus_interfaces
+# plus bas, provoquant [BD 41-1732] "associated with multiple clock-pins"
+# (le meme pin s_axi_aclk liste plusieurs fois) a l'ouverture du Block
+# Design. Si vous avez deja genere ce repo_dir avant ce correctif, supprimez
+# -le a la main une fois (ou relancez simplement ce script, qui s'en charge
+# desormais).
+if {[file exists $repo_dir]} {
+    file delete -force $repo_dir
+}
+
 file mkdir $repo_dir
 
 ipx::package_project -root_dir $repo_dir -vendor user.org -library user \
@@ -71,14 +97,28 @@ ipx::package_project -root_dir $repo_dir -vendor user.org -library user \
 
 set core [ipx::current_core]
 
+set build_number [next_build_number "axi"]
+set ip_version "1.$build_number"
+
 set_property name             pwm_fan_thermal_axi_v1_0                      $core
 set_property display_name     "PWM Fan Thermal AXI"                          $core
 set_property description      "Controleur PWM ventilateur KV260 avec acquisition temperature SYSMON et asservissement thermique, interface AXI4-Lite (registres CTRL/PERIOD/DUTY/TEMP/seuils)." $core
 set_property vendor_display_name "user.org"                                  $core
-set_property version          "1.0"                                          $core
+set_property version          $ip_version                                   $core
 
-# Tentative d'inference automatique de l'interface AXI4-Lite (cf. note en
-# tete de fichier si cela ne prend pas correctement sur votre version).
+# Inference automatique de l'interface AXI4-Lite. ipx::infer_bus_interface,
+# lorsqu'il recoit la liste complete des ports d'un bundle aximm_rtl nomme
+# selon la convention standard (prefixe s_axi_), detecte ET ASSOCIE DEJA
+# LUI-MEME s_axi_aclk/s_axi_aresetn comme horloge/reset de ce bus (Vivado
+# scanne les ports "s_axi_aclk"/"s_axi_aresetn" par correspondance de
+# prefixe). Des appels supplementaires explicites a ipx::infer_bus_interface
+# sur s_axi_aclk (type clock_rtl) et a ipx::associate_bus_interfaces
+# provoquaient donc une DEUXIEME association du meme pin d'horloge sur le
+# meme bus S_AXI -> [BD 41-1732] "found to be associated with multiple
+# clock-pins" (le meme s_axi_aclk liste deux fois) a la validation du Block
+# Design, de facon deterministe des le premier packaging (pas seulement en
+# cas de re-packaging sur un repo_dir non nettoye). Ne pas les reajouter :
+# un seul appel suffit et couvre deja l'horloge/le reset.
 catch {
     ipx::infer_bus_interface {
         s_axi_awaddr s_axi_awvalid s_axi_awready
@@ -88,15 +128,6 @@ catch {
         s_axi_rdata  s_axi_rresp   s_axi_rvalid  s_axi_rready
     } xilinx.com:interface:aximm_rtl:1.0 $core
 }
-catch {
-    ipx::infer_bus_interface s_axi_aclk xilinx.com:signal:clock_rtl:1.0 $core
-}
-catch {
-    ipx::infer_bus_interface s_axi_aresetn xilinx.com:signal:reset_rtl:1.0 $core
-}
-catch {
-    ipx::associate_bus_interfaces -busif S_AXI -clock s_axi_aclk $core
-}
 
 ipx::create_xgui_files      $core
 ipx::update_checksums       $core
@@ -104,7 +135,16 @@ ipx::save_core              $core
 
 close_project
 
+puts ""
+puts "=================================================================="
+puts " Build #$build_number -- IP pwm_fan_thermal_axi_v1_0 packagee (version Vivado du composant = $ip_version)"
+puts "=================================================================="
+puts ""
 puts "IP AXI packagee dans : [file normalize $repo_dir]"
 puts "Pensez a l'ajouter au repository IP de votre projet :"
 puts "  set_property ip_repo_paths {[file normalize $repo_dir]} \[current_project\]"
 puts {  update_ip_catalog}
+puts ""
+puts "Pour verifier apres synthese/bitstream que la carte tourne bien avec CE"
+puts "packaging (Build #$build_number), comparez avec la version affichee dans"
+puts "Vivado (IP catalog / Customize IP / Report IP Status) : $ip_version."
